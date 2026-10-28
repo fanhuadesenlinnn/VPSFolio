@@ -94,7 +94,7 @@ function bind(){
   }));
   document.querySelectorAll('.diagnoseGreen').forEach(b=>b.addEventListener('click',async()=>{
     try {
-      notice('正在测试两个只读接口…');
+      notice('正在检测账户认证、服务器详情及实时状态…');
       const report=await send('DIAGNOSE_GREEN',{id:b.dataset.id});
       notice(report.map(x=>`${x.test}：${x.httpStatus || '网络错误'}；${x.message}`).join(' | '),report.some(x=>x.httpStatus!==200));
     } catch(e) {notice(e.message,true);}

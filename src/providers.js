@@ -29,24 +29,30 @@ async function readJson(url, headers = {}) {
     try { return JSON.parse(body); } catch { throw Error(`API ${new URL(url).pathname} 未返回 JSON，请检查接口路径`); }
   } finally { clearTimeout(timeout); }
 }
+/** Read-only staged diagnostics: account authentication first, server ownership second. */
 export async function diagnoseGreenCloud(cfg) {
   validateConfig(cfg);
   if (cfg.provider !== 'virtfusion') throw Error('仅支持诊断 GreenCloud');
+  const headers = {Authorization:`Bearer ${cfg.token}`, 'Content-Type':'application/json'};
   const uuid = cfg.serverUuids?.[0];
-  if (!uuid) throw Error('请先填写 GreenCloud 服务器 UUID');
-  const headers = {Authorization:`Bearer ${cfg.token}`};
-  const path = `/api/server/${encodeURIComponent(uuid)}`;
+  const checks = [['账户认证','/api/account']];
+  if (uuid) {
+    const server = `/api/server/${encodeURIComponent(uuid)}`;
+    checks.push(['服务器详情',server], ['实时状态',server+'?state=true']);
+  }
   const result = [];
-  for (const [name,suffix] of [['服务器详情',''],['实时状态','?state=true']]) {
+  for (const [name,path] of checks) {
     try {
-      const data=await readJson(`${cfg.origin}${path}${suffix}`, headers);
-      const root=data?.data ?? data;
-      result.push({test:name,httpStatus:200,message:`成功（包含 ${Object.keys(root||{}).length} 个顶层字段）`});
+      await readJson(`${cfg.origin}${path}`,headers);
+      result.push({test:name,httpStatus:200,message:'请求成功（敏感响应内容未显示）'});
     } catch (e) {
       result.push({test:name,httpStatus:e.httpStatus||0,message:String(e.message||e).slice(0,260)});
-      if (e.httpStatus===429) break;
+      if (name==='账户认证' || e.httpStatus===429) break;
     }
   }
+  if (!uuid && result[0]?.httpStatus===200) result.push({
+    test:'服务器 UUID',httpStatus:0,message:'请配置服务器 UUID 后再检测资源访问权限'
+  });
   return result;
 }
 export async function fetchAccount(cfg) {

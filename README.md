@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.3.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
+> v0.3.1：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
 
 ## 安装
 
@@ -34,6 +34,12 @@
 若仍显示 401/403，请在「已添加账户」点击「诊断 API」：插件分别测试 `GET /api/server/{UUID}` 和 `GET /api/server/{UUID}?state=true`，显示 HTTP 状态码及脱敏的服务端错误原因。它不公开 Token、不进行管理操作。若需要更换已经暴露或过期的 Key，在对应账户的密码输入框输入新 Key，点击「替换密钥」即可保留现有 UUID 和设置。
 
 注意：403 可能来自 Token 权限、UUID 关联或代理安全策略，不能根据单一状态码认定是管理员 API 调用。请将诊断文字（检查不含凭据后）用于后续定位，不要公开旧密钥。
+
+### GreenCloud 官方 OpenAPI 文档核对（2026-10-28）
+
+已从实际登录的 `https://cp.green.cloud/account/api#description/introduction` 页面读取终端用户 API：Base URL 为 `https://cp.green.cloud/api`，使用 `Authorization: Bearer <token>`，`Accept: application/json`，其中 `GET /api/account` 是官方已明确提供的账户请求。官方列明无效或过期 Token 返回 401、限流返回 429、服务不可用返回 503；服务器管理请求仅允许服务器所有者。
+
+v0.3.1 的「诊断 API」首先请求 `GET /api/account`，确认密钥是否能完成普通用户认证；只有成功才测试服务器详情和实时状态。诊断不输出账户资料和 Token。**目前尚未读取 Server 分组展开后的全部官方请求和响应定义**，因此 `/api/server/{UUID}` 的查询及流量字段仍需与该分组核对，不能把前期第三方示例视为 GreenCloud 官方已验证接口。
 
 ## Google Drive 加密备份（一次性 OAuth 设置）
 

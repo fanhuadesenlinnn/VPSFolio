@@ -14,11 +14,12 @@ test('GreenCloud diagnostic distinguishes 403 from successful basic server API',
   };
   try {
     const results=await diagnoseGreenCloud(cfg);
-    assert.deepEqual(results.map(x=>x.httpStatus),[200,403]);
-    assert.ok(results[1].message.includes('/api/server/'));
-    assert.ok(results[1].message.includes('not permitted to access state'));
+    assert.deepEqual(results.map(x=>x.httpStatus),[200,200,403]);
+    assert.ok(results[2].message.includes('/api/server/'));
+    assert.ok(results[2].message.includes('not permitted to access state'));
     assert.ok(!JSON.stringify(results).includes('a-private-value'));
-    assert.equal(urls.length,2);
+    assert.equal(urls.length,3);
+    assert.ok(urls[0].endsWith('/api/account'));
   } finally {globalThis.fetch=previous;}
 });
 test('Diagnostics redact token-looking values from returned API errors',async()=>{
@@ -27,7 +28,7 @@ test('Diagnostics redact token-looking values from returned API errors',async()=
   globalThis.fetch=async ()=>new Response(JSON.stringify({message:`Access denied ${fakeSecret}`}),{status:403,headers:{'content-type':'application/json'}});
   try {
     const result=await diagnoseGreenCloud(cfg);
-    assert.equal(result.length,2);
+    assert.equal(result.length,1);
     assert.ok(!JSON.stringify(result).includes(fakeSecret));
     assert.ok(JSON.stringify(result).includes('[REDACTED]'));
   } finally {globalThis.fetch=previous;}
@@ -38,4 +39,31 @@ test('GreenCloud fetch retains 403 detail without logging authorization',async()
   try {
     await assert.rejects(()=>fetchAccount(cfg),e=>e.message.includes('server access denied')&&!e.message.includes('a-private-value'));
   } finally {globalThis.fetch=previous;}
+});
+
+test('Official account endpoint detects an invalid token before server calls',async()=>{
+  const original=globalThis.fetch, calls=[];
+  globalThis.fetch=async url=>{
+    calls.push(url);return new Response('',{status:401,headers:{'content-type':'application/json'}});
+  };
+  try{
+    const report=await diagnoseGreenCloud(cfg);
+    assert.deepEqual(report.map(x=>x.httpStatus),[401]);
+    assert.equal(calls.length,1);
+    assert.ok(calls[0].endsWith('/api/account'));
+  }finally{globalThis.fetch=original;}
+});
+test('Account API response never exposes personal details',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    assert.ok(url.endsWith('/api/account'));
+    return new Response(JSON.stringify({data:{name:'Private',email:'hidden@example.com'}}),{status:200,headers:{'content-type':'application/json'}});
+  };
+  try{
+    const report=await diagnoseGreenCloud({...cfg,serverUuids:[]});
+    assert.equal(report[0].httpStatus,200);
+    assert.equal(report[1].test,'服务器 UUID');
+    assert.ok(!JSON.stringify(report).includes('Private'));
+    assert.ok(!JSON.stringify(report).includes('hidden@example.com'));
+  }finally{globalThis.fetch=original;}
 });
