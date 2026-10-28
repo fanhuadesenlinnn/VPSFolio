@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.1.0：可安装的 MVP，**只读查询**，不提供开关机、重装功能。**GreenCloud 普通用户接口路径尚未经过真实账户验证**：VirtFusion 的用户 API 文档在用户自己的 Account 页面展示；本扩展的默认路径参考公开的管理员 API，普通用户 Key 可能返回 403/404，需据用户文档改写。不能将 Global API 路径视为已经可用。
+> v0.2.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
 
 ## 安装
 
@@ -21,15 +21,14 @@
 
 ### GreenCloud (VirtFusion)
 
-在 `https://cp.green.cloud/account` 创建**终端用户** API Key，并查看账户专属的 API 文档，确认：
+在 https://cp.green.cloud/account 创建**普通用户 API Key**，可查看账户文档 https://cp.green.cloud/account/api 。不要将管理员 API 与用户 API 混用。
 
-- 列出**自己**服务器的 GET 路径（返回服务器列表）
-- 查询单台服务器流量周期的 GET 路径（其中 ID 用 `{id}` 表示）
-- 是否使用 `Authorization: Bearer <token>`
+1. 打开 GreenCloud VPS 管理页面 `https://cp.green.cloud/server/<UUID>`，复制最后的 UUID（不是 WHMCS 账单 ID）。
+2. 添加 GreenCloud 账号时填写 Key 和服务器 UUID。多个 UUID 用逗号分隔。
+3. **从旧版升级不用删除原有账户**：在「已添加账户」中点击「设置 UUID」并填写 UUID，之前加密保存的 Key 保留。
+4. 可选填「配额 GB」（若 API 没有提供）。当前解析用户 API 的 `data.state.network.primary.traffic.rx/tx/total` 字节值；若缺少重置日期，则显示空值，不会编造。
 
-添加 GreenCloud 账户时填写相应的路径。默认 `/api/v1/servers`、`/api/v1/servers/{id}/traffic` **来自公开的 Global 管理员 API**，**不能保证普通用户可用**。插件不会绕过权限或访问其他账户。如果用户 API 响应格式与 Global API 不同，需要更新 `src/core.js` 的适配器。
-
-对于公开 Global API 的 `monthly` 数据，支持 `trafficBytesPerGb`、`rx`、`tx`、`total`、`limit` 和额外流量块 `blocks`。无法识别时会显示错误，而非编造统计数据。
+参考第三方公开示例中的 `GET /api/server/{uuid}?state=true`。用户 API 返回的网络计数**未必等于计费周期已用流量**，应对照控制面板核实。仅使用 GET，不执行开关机、重装。
 
 ## Google Drive 加密备份（一次性 OAuth 设置）
 

@@ -22,10 +22,14 @@ export function validateConfig(c) {
   if (c.provider === 'kiwivm' && !/^\d+$/.test(String(c.veid || ''))) throw Error('搬瓦工 VEID 必须为数字');
   if (c.provider === 'virtfusion') {
     if (c.origin !== 'https://cp.green.cloud') throw Error('当前 GreenCloud 仅允许 cp.green.cloud 域名');
-    for (const path of [c.listPath, c.trafficPath]) {
-      if (!/^\/(?!\/)[\w/{}.-]+$/.test(String(path || '')) || path.includes('..')) throw Error('API 路径须为安全的站内绝对路径');
+    const ids = c.serverUuids;
+    // Allow pre-0.2.0 vaults to decrypt before the user supplies their UUIDs.
+    if (ids !== undefined) {
+      if (!Array.isArray(ids) || ids.length > 40 || ids.some(id => !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id)))
+        throw Error('请输入有效的 VirtFusion 服务器 UUID（可从控制面板 /server/ 后复制）');
     }
-    if (!c.trafficPath.includes('{id}')) throw Error('流量接口路径需要包含 {id}');
+    if (c.quotaGb !== undefined && c.quotaGb !== null && (!Number.isFinite(Number(c.quotaGb)) || Number(c.quotaGb) <= 0 || Number(c.quotaGb) > 10000000))
+      throw Error('手动流量配额必须是正数 GB');
   }
 }
 export async function encryptVault(data, passphrase) {
@@ -110,4 +114,35 @@ export function normalizeKiwi(json, cfg) {
     memory:number(json.plan_ram), used:rawUsed == null ? null : rawUsed * multiplier,
     quota:rawQuota == null ? null : rawQuota * multiplier,
     reset:reset == null ? null : new Date(reset * 1000).toISOString(), rx:null,tx:null,error:null};
+}
+
+/** VirtFusion 6.1+ END-USER API (/api/server/{uuid}?state=true), not Global API. */
+export function normalizeVirtFusionUserServer(json, cfg, uuid) {
+  const d = obj(json?.data ?? json);
+  if (!d || (!d.name && !d.hostname && !d.state && !d.resources && !d.network))
+    throw Error('用户 API 响应结构未识别，请检查账户 → API 文档');
+  const state = obj(d.state);
+  const primary = obj(obj(state.network).primary);
+  const traffic = obj(primary.traffic);
+  const rx = number(traffic.rx), tx = number(traffic.tx);
+  const used = number(traffic.total) ?? (rx != null && tx != null ? rx + tx : null);
+  const resources = obj(d.resources);
+  const quotaGb = number(cfg.quotaGb) ?? number(resources.traffic);
+  const bytesPerGb = number(d.trafficBytesPerGb) || 1000000000;
+  const quota = quotaGb != null && quotaGb > 0 ? quotaGb * bytesPerGb : null;
+  const primaryIp = d.primaryIPv4 || d.primary_ipv4 || d.ip || d.ipAddress;
+  const ip4 = Array.isArray(d.ipv4) ? d.ipv4[0]?.address ?? d.ipv4[0] : null;
+  const status = typeof d.state === 'string' ? d.state :
+    (typeof state.status === 'string' ? state.status : typeof state.state === 'string' ? state.state :
+    typeof d.status === 'string' ? d.status : 'unknown');
+  return {
+    id:uuid, provider:'virtfusion', label:cfg.label,
+    name:String(d.name || d.hostname || `Server ${uuid.slice(0,8)}`),
+    ip:String(primaryIp || ip4 || ''),
+    location:String(typeof d.location === 'string' ? d.location : d.location?.name || ''),
+    status, cpu:number(resources.cpuCores), memory:number(resources.memory),
+    rx, tx, used, quota,
+    reset:d.trafficPeriod?.end || d.traffic?.currentPeriod?.end || null,
+    error:used===null ? '已连接用户 API，但返回的流量字段未识别，请核对面板 API 文档' : null
+  };
 }

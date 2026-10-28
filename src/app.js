@@ -42,10 +42,10 @@ function mainView(){
   html+='</section>';
   if(isPopup) return html+'<div id="feedback" class="notice" hidden></div><div class="foot">自动刷新每 15 分钟（浏览器打开且保险库已解锁时）</div>';
   html+=`<section class="panel"><div class="paneltitle"><h2>已添加账户</h2></div>`;
-  html+=state.accounts.length?state.accounts.map(a=>`<div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc(a.listPath)}</div></div><button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div>`).join(''):'<div class="small">当前没有账号。</div>';
+  html+=state.accounts.length?state.accounts.map(a=>`<div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc((a.serverUuids||[]).length)+' 台 VPS'}</div></div><div class="actions">${a.provider==='virtfusion'?`<button class="tiny configureGreen" data-id="${esc(a.id)}">设置 UUID</button>`:''}<button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div></div>`).join(''):'<div class="small">当前没有账号。</div>';
   html+='</section>';
   html+=`<section class="panel"><h2>添加服务商账户</h2><form id="accountForm"><div class="fields"><div><label>服务商</label><select name="provider" id="provider"><option value="virtfusion">GreenCloud · VirtFusion</option><option value="kiwivm">搬瓦工 · KiwiVM</option></select></div><div><label>显示名称</label><input name="label" required maxlength="70" placeholder="例如 JP Softbank" autocomplete="off"></div><div class="wide"><label>API Key / Bearer Token</label><input name="token" type="password" required autocomplete="off" placeholder="仅加密保存在本机"></div></div>
-   <div id="virtFields"><div class="fields"><div><label>服务器列表路径（核对用户 API 文档）</label><input name="listPath" value="/api/v1/servers" autocomplete="off"></div><div><label>流量接口路径（必须含 {id}）</label><input name="trafficPath" value="/api/v1/servers/{id}/traffic" autocomplete="off"></div></div><div class="notice">默认路径参考 VirtFusion 管理员 API，仅供初始化测试；终端用户 API 可能不同。如报 HTTP 403/404，请在 VirtFusion「账户 → API 文档」中查出用户接口并替换，不能使用管理员密钥。</div></div>
+   <div id="virtFields"><div class="fields"><div class="wide"><label>服务器 UUID（多个以逗号分隔）</label><input name="serverUuids" placeholder="复制 https://cp.green.cloud/server/ 后的 UUID" autocomplete="off" required></div><div><label>流量配额 GB（可选，若 API 不提供）</label><input name="quotaGb" type="number" min="1" step="1" placeholder="如 4096"></div></div><div class="notice">使用 VirtFusion 终端用户 API：GET /api/server/{uuid}?state=true。不要使用 /api/v1/servers 管理员接口。流量配额无法从 API 确认时可手动填入。</div></div>
    <div id="kiwiFields" class="hidden"><label>VEID（VPS ID）</label><input name="veid" placeholder="例如 123456" inputmode="numeric" autocomplete="off"><div class="small" style="margin-top:6px">每台搬瓦工 VPS 需分别配置 VEID 和对应的 API Key。</div></div>
    <div class="form-actions"><button class="primary" type="submit">保存账户</button></div></form></section>`;
   html+=`<section class="panel"><h2>设置与备份</h2><div class="inline"><div><label>流量告警阈值（%）</label><input id="threshold" type="number" min="1" max="100" value="${state.threshold}"></div><button id="saveThreshold">保存阈值</button></div><hr><div class="actions"><button id="export">导出加密备份</button><button id="import">导入本地备份</button><button id="cloudBackup">备份至 Google Drive</button><button id="cloudRestore">从 Google Drive 恢复</button></div><input id="backupFile" type="file" accept="application/json,.json" hidden><div class="notice">备份包含服务商密钥，但仅以 AES-256-GCM 密文保存。恢复时必须使用创建备份时的加密口令。Google Drive 使用 appDataFolder；首次使用需配置 OAuth Client ID，具体见 README。</div></section>`;
@@ -79,9 +79,19 @@ function bind(){
     e.preventDefault();const f=new FormData(e.currentTarget),provider=String(f.get('provider'));
     const account={provider,label:String(f.get('label')||'').trim(),token:String(f.get('token')||'').trim()};
     if(provider==='kiwivm')account.veid=String(f.get('veid')||'').trim();
-    else Object.assign(account,{origin:'https://cp.green.cloud',listPath:String(f.get('listPath')||''),trafficPath:String(f.get('trafficPath')||'')});
+    else Object.assign(account,{origin:'https://cp.green.cloud',serverUuids:String(f.get('serverUuids')||'').split(/[\s,;]+/).filter(Boolean),quotaGb:f.get('quotaGb')?Number(f.get('quotaGb')):null});
     action(()=>send('ADD_ACCOUNT',{account}),'账户已加密保存，请点击刷新');
   });
+  document.querySelectorAll('.configureGreen').forEach(b=>b.addEventListener('click',()=>{
+    const cfg=state.accounts.find(a=>a.id===b.dataset.id);
+    if(!cfg)return;
+    const raw=prompt('请输入 VPS 的 UUID，多个以逗号分隔。\\nUUID 位于 https://cp.green.cloud/server/{UUID}',(cfg.serverUuids||[]).join(', '));
+    if(raw===null)return;
+    const serverUuids=raw.split(/[\s,;]+/).filter(Boolean);
+    const quota=prompt('流量配额 GB（可选；如果 API 没有额度字段可以填写，留空则使用 API）',cfg.quotaGb==null?'':String(cfg.quotaGb));
+    if(quota===null)return;
+    action(()=>send('SET_GREEN_IDS',{id:cfg.id,serverUuids,quotaGb:quota.trim()?Number(quota):null}),'服务器 UUID 已保存，请点击刷新');
+  }));
   document.querySelectorAll('.remove').forEach(b=>b.addEventListener('click',()=>{
     if(confirm('确定移除这个服务商账户和 API Key？'))action(()=>send('DELETE_ACCOUNT',{id:b.dataset.id}),'账户已移除');
   }));

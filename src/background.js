@@ -72,6 +72,15 @@ async function dispatch(message){
       const c={...message.account,id:crypto.randomUUID()};
       validateConfig(c);data.accounts.push(c);await saveSettings(data);return getState();
     }
+    case 'SET_GREEN_IDS':{
+      const data=await getSettings();
+      const cfg=data.accounts.find(x=>x.id===message.id && x.provider==='virtfusion');
+      if(!cfg) throw Error('GreenCloud 账户不存在');
+      cfg.serverUuids=message.serverUuids;
+      cfg.quotaGb=message.quotaGb == null ? null : message.quotaGb;
+      validateConfig(cfg);
+      await saveSettings(data);return getState();
+    }
     case 'DELETE_ACCOUNT':{
       const data=await getSettings();
       data.accounts=data.accounts.filter(x=>x.id!==message.id);
