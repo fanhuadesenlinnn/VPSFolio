@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.4.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
+> v0.4.1：GreenCloud 请求携带该域名的浏览器 Cookie，以使用已有 Cloudflare 验证状态；识别验证页并给出处理提示。补齐官方 API 的配额、IP、CPU、内存与重置日期字段。两台真实 VPS 在官方文档测试台均返回 200；扩展跨域连接仍需安装更新后验证。
 
 ## 安装
 
@@ -35,10 +35,11 @@ VPSFolio →「管理」→「已添加账户」→ **编辑配置**。所有账
 
 1. 打开 GreenCloud VPS 管理页面 `https://cp.green.cloud/server/<UUID>`，复制最后的 UUID（不是 WHMCS 账单 ID）。
 2. 添加 GreenCloud 账号时填写 Key 和服务器 UUID。多个 UUID 用逗号分隔。
-3. **从旧版升级不用删除原有账户**：在「已添加账户」中点击「设置 UUID」并填写 UUID，之前加密保存的 Key 保留。
-4. 可选填「配额 GB」（若 API 没有提供）。当前解析用户 API 的 `data.state.network.primary.traffic.rx/tx/total` 字节值；若缺少重置日期，则显示空值，不会编造。
+3. **从旧版升级不用删除原有账户**：在「已添加账户」中点击「编辑配置」并填写 UUID，之前加密保存的 Key 保留。
+4. 自动读取 `data.network.primary.limit`（如 `4096 GB`）、`network.primary.ipv4`、`cpu`、`memory`、`currentMonthlyPeriod.end`。「配额 GB」可手动覆盖配额。流量读取 `data.state.network.primary.traffic.rx/tx/total` 字节值；缺少数据时保留空值。
+5. 若提示 Cloudflare：先在**安装扩展的同一 Chrome 配置**打开 https://cp.green.cloud，完成验证后回扩展刷新。验证过期、Cloudflare 按来源拦截或浏览器 Cookie 策略仍可能阻止请求，需联系 GreenCloud 确认 API 验证策略。
 
-参考第三方公开示例中的 `GET /api/server/{uuid}?state=true`。用户 API 返回的网络计数**未必等于计费周期已用流量**，应对照控制面板核实。仅使用 GET，不执行开关机、重装。
+已核对官方 API 的 `GET /api/server/{serverId}` 与布尔查询参数 `state`。用户 API 返回的网络计数**未必等于计费周期已用流量**，应对照控制面板核实。仅使用 GET，不执行开关机、重装。
 
 ### API 诊断
 若仍显示 401/403，请在「已添加账户」点击「诊断 API」：插件分别测试 `GET /api/server/{UUID}` 和 `GET /api/server/{UUID}?state=true`，显示 HTTP 状态码及脱敏的服务端错误原因。它不公开 Token、不进行管理操作。若需要更换已经暴露或过期的 Key，在对应账户的密码输入框输入新 Key，点击「替换密钥」即可保留现有 UUID 和设置。
@@ -49,7 +50,7 @@ VPSFolio →「管理」→「已添加账户」→ **编辑配置**。所有账
 
 已从实际登录的 `https://cp.green.cloud/account/api#description/introduction` 页面读取终端用户 API：Base URL 为 `https://cp.green.cloud/api`，使用 `Authorization: Bearer <token>`，`Accept: application/json`，其中 `GET /api/account` 是官方已明确提供的账户请求。官方列明无效或过期 Token 返回 401、限流返回 429、服务不可用返回 503；服务器管理请求仅允许服务器所有者。
 
-v0.3.1 的「诊断 API」首先请求 `GET /api/account`，确认密钥是否能完成普通用户认证；只有成功才测试服务器详情和实时状态。诊断不输出账户资料和 Token。**目前尚未读取 Server 分组展开后的全部官方请求和响应定义**，因此 `/api/server/{UUID}` 的查询及流量字段仍需与该分组核对，不能把前期第三方示例视为 GreenCloud 官方已验证接口。
+「诊断 API」首先请求 `GET /api/account`，成功后测试服务器详情和实时状态。Server 分组已核对：`GET /server/{serverId}` 支持 `state` 参数，返回 `data.network.primary.limit`、`currentMonthlyPeriod` 与 `state.network.primary.traffic`。2026-10-28 官方文档测试台两台真实 VPS 的 `state=true` 均返回 200；终端直连返回 `cf-mitigated: challenge` 的 HTML 403，与 API 的 JSON 授权错误分开提示。浏览器文档测试成功不能替代扩展跨域端到端验证。
 
 ## Google Drive 加密备份（一次性 OAuth 设置）
 
@@ -87,7 +88,7 @@ npm run validate
 - 扩展只拥有指定 API 域名与 Google Drive API 的 host permissions，不执行远程 JavaScript。
 - 不支持重装、关机等改变服务器状态的 API。
 - Key 使用浏览器本地 AES-256-GCM 加密，PBKDF2-SHA256 25 万轮；云端保存的只有密文。
-- 所有服务商请求不携带浏览器 Cookie，且 `redirect:'error'`，避免在异常重定向中泄露凭据。
+- 只有 GreenCloud 固定域名的请求使用 `credentials: include` 携带浏览器 Cookie，不读取 Cookie 内容、不增加 cookies 权限；KiwiVM 不携带 Cookie。所有服务商请求使用 `redirect:'error'`，避免在异常重定向中泄露凭据。
 - 仅供个人/可信设备使用，浏览器本地遭恶意扩展或系统级入侵时仍可能泄露会话密钥。
 
 ## 资料

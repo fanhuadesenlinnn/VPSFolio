@@ -9,6 +9,8 @@ test('GreenCloud diagnostic distinguishes 403 from successful basic server API',
   globalThis.fetch=async (url,options)=>{
     urls.push(url);
     assert.equal(options.headers.Authorization,'Bearer a-private-value');
+    assert.equal(options.credentials,'include');
+    assert.equal(options.redirect,'error');
     if(url.endsWith('?state=true'))return new Response(JSON.stringify({msg:'not permitted to access state'}),{status:403,headers:{'content-type':'application/json'}});
     return new Response(JSON.stringify({data:{name:'Example'}}),{status:200,headers:{'content-type':'application/json'}});
   };
@@ -21,6 +23,55 @@ test('GreenCloud diagnostic distinguishes 403 from successful basic server API',
     assert.equal(urls.length,3);
     assert.ok(urls[0].endsWith('/api/account'));
   } finally {globalThis.fetch=previous;}
+});
+
+test('Cloudflare HTML challenge has an actionable message, not a token error',async()=>{
+  const original=globalThis.fetch;
+  for (const headers of [
+    {'content-type':'text/html','cf-mitigated':'challenge'},
+    {'content-type':'text/html'}
+  ]) {
+    globalThis.fetch=async()=>new Response('<title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/test"></script>',{status:403,headers});
+    try {
+      const report=await diagnoseGreenCloud(cfg);
+      assert.equal(report.length,1);
+      assert.equal(report[0].httpStatus,403);
+      assert.match(report[0].message,/Cloudflare.*尚未验证 Token/);
+      assert.ok(!JSON.stringify(report).includes(cfg.token));
+    } finally {globalThis.fetch=original;}
+  }
+});
+
+test('KiwiVM never receives browser cookies',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(new URL(url).hostname,'api.64clouds.com');
+    assert.equal(options.credentials,'omit');
+    assert.equal(options.headers.Authorization,undefined);
+    return new Response(JSON.stringify({error:0}),{headers:{'content-type':'application/json'}});
+  };
+  try {await fetchAccount({provider:'kiwivm',label:'Kiwi',veid:'123',token:'private'});}
+  finally {globalThis.fetch=original;}
+});
+
+test('Both configured GreenCloud servers are fetched and normalized',async()=>{
+  const original=globalThis.fetch;
+  const ids=[uuid,'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'];
+  const calls=[];
+  globalThis.fetch=async(url,options)=>{
+    calls.push(url);
+    assert.equal(options.credentials,'include');
+    return new Response(JSON.stringify({data:{name:'VPS',network:{primary:{limit:'4096 GB',ipv4:[{address:'192.0.2.1'}]}},currentMonthlyPeriod:{end:'2026-11-25T23:59:59Z'},state:{status:'running',network:{primary:{traffic:{rx:10,tx:20,total:30}}}}}}),{headers:{'content-type':'application/json'}});
+  };
+  try {
+    const rows=await fetchAccount({...cfg,serverUuids:ids});
+    assert.deepEqual(rows.map(r=>r.id),ids);
+    assert.deepEqual(rows.map(r=>r.used),[30,30]);
+    assert.equal(rows[0].quota,4096e9);
+    assert.equal(rows[0].ip,'192.0.2.1');
+    assert.equal(calls.length,2);
+    assert.ok(calls.every(url=>url.endsWith('?state=true')));
+  } finally {globalThis.fetch=original;}
 });
 test('Diagnostics redact token-looking values from returned API errors',async()=>{
   const previous=globalThis.fetch;

@@ -40,6 +40,23 @@ test('Legacy vault account can be updated without re-entering token',()=>{
   assert.doesNotThrow(()=>validateConfig(legacy));
 });
 
+test('Official end-user schema parses formatted resources, network quota and billing period',()=>{
+  const data={name:'Example',cpu:'4 Core',memory:'7168 MB',suspended:false,
+    network:{primary:{limit:'4096 GB',ipv4:[{address:'192.0.2.1'}]}},
+    currentMonthlyPeriod:{end:'2026-11-25T23:59:59.999999Z'},
+    state:{status:'running',network:{primary:{traffic:{rx:477031497113,tx:936034846090,total:1413066343203}}}}};
+  const row=normalizeVirtFusionUserServer({data},virt,uuid);
+  assert.equal(row.cpu,4);assert.equal(row.memory,7168);
+  assert.equal(row.ip,'192.0.2.1');assert.equal(row.quota,4096e9);
+  assert.equal(row.used,1413066343203);assert.equal(row.reset,data.currentMonthlyPeriod.end);
+  assert.equal(row.error,null);
+  assert.equal(normalizeVirtFusionUserServer({data},{...virt,quotaGb:1024},uuid).quota,1024e9);
+  const suspended=normalizeVirtFusionUserServer({data:{...data,suspended:true,state:null}},virt,uuid);
+  assert.equal(suspended.status,'suspended');assert.equal(suspended.used,null);
+  assert.ok(suspended.error);
+  assert.equal(normalizeVirtFusionUserServer({data:{...data,network:{primary:{limit:null}}}},virt,uuid).quota,null);
+});
+
 
 test('Edit GreenCloud config keeps its original identity, token and legacy fields',()=>{
   const previous={...virt,id:'original-account',token:'preserved-secret',listPath:'/old'};

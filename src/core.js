@@ -148,6 +148,10 @@ export function normalizeKiwi(json, cfg) {
 }
 
 /** VirtFusion 6.1+ END-USER API (/api/server/{uuid}?state=true), not Global API. */
+function quantity(value, unit) {
+  const match = typeof value === 'string' && value.trim().match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s+${unit}$`, 'i'));
+  return match ? Number(match[1]) : null;
+}
 export function normalizeVirtFusionUserServer(json, cfg, uuid) {
   const d = obj(json?.data ?? json);
   if (!d || (!d.name && !d.hostname && !d.state && !d.resources && !d.network))
@@ -158,11 +162,13 @@ export function normalizeVirtFusionUserServer(json, cfg, uuid) {
   const rx = number(traffic.rx), tx = number(traffic.tx);
   const used = number(traffic.total) ?? (rx != null && tx != null ? rx + tx : null);
   const resources = obj(d.resources);
-  const quotaGb = number(cfg.quotaGb) ?? number(resources.traffic);
+  const network = obj(obj(d.network).primary);
+  const quotaGb = number(cfg.quotaGb) ?? quantity(network.limit, 'GB') ?? number(resources.traffic);
   const bytesPerGb = number(d.trafficBytesPerGb) || 1000000000;
   const quota = quotaGb != null && quotaGb > 0 ? quotaGb * bytesPerGb : null;
   const primaryIp = d.primaryIPv4 || d.primary_ipv4 || d.ip || d.ipAddress;
-  const ip4 = Array.isArray(d.ipv4) ? d.ipv4[0]?.address ?? d.ipv4[0] : null;
+  const addresses = list(network.ipv4).length ? network.ipv4 : list(d.ipv4);
+  const ip4 = addresses[0]?.address ?? (typeof addresses[0] === 'string' ? addresses[0] : null);
   const status = typeof d.state === 'string' ? d.state :
     (typeof state.status === 'string' ? state.status : typeof state.state === 'string' ? state.state :
     typeof d.status === 'string' ? d.status : 'unknown');
@@ -171,9 +177,11 @@ export function normalizeVirtFusionUserServer(json, cfg, uuid) {
     name:String(d.name || d.hostname || `Server ${uuid.slice(0,8)}`),
     ip:String(primaryIp || ip4 || ''),
     location:String(typeof d.location === 'string' ? d.location : d.location?.name || ''),
-    status, cpu:number(resources.cpuCores), memory:number(resources.memory),
+    status:d.suspended ? 'suspended' : status,
+    cpu:quantity(d.cpu, 'Cores?') ?? number(resources.cpuCores),
+    memory:quantity(d.memory, 'MB') ?? number(resources.memory),
     rx, tx, used, quota,
-    reset:d.trafficPeriod?.end || d.traffic?.currentPeriod?.end || null,
+    reset:d.currentMonthlyPeriod?.end || d.trafficPeriod?.end || d.traffic?.currentPeriod?.end || null,
     error:used===null ? '已连接用户 API，但返回的流量字段未识别，请核对面板 API 文档' : null
   };
 }

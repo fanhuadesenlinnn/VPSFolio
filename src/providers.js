@@ -1,4 +1,4 @@
-import {normalizeKiwi, normalizeVirtFusionServers, applyVirtFusionTraffic, normalizeVirtFusionUserServer, validateConfig} from './core.js';
+import {normalizeKiwi, normalizeVirtFusionUserServer, validateConfig} from './core.js';
 function apiError(status, url, contentType, body) {
   const path = new URL(url).pathname; // Never expose query strings containing KiwiVM credentials.
   let serverMessage = '';
@@ -17,17 +17,28 @@ function apiError(status, url, contentType, body) {
   e.httpStatus = status;
   return e;
 }
-async function readJson(url, headers = {}) {
+async function readJson(url, headers = {}, credentials = 'omit') {
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 15000);
   try {
-    const res = await fetch(url, {method:'GET', headers:{Accept:'application/json', ...headers}, credentials:'omit', cache:'no-store', redirect:'error', signal:ctl.signal});
+    const res = await fetch(url, {method:'GET', headers:{Accept:'application/json', ...headers}, credentials, cache:'no-store', redirect:'error', signal:ctl.signal});
     const type = res.headers.get('content-type') || '';
     const body = await res.text();
     if (body.length > 2_000_000) throw Error('API 响应过大');
+    if (res.headers.get('cf-mitigated') === 'challenge' ||
+        (type.includes('text/html') && /challenge-platform|<title>Just a moment\.\.\.<\/title>/i.test(body))) {
+      const e = new Error('Cloudflare 浏览器验证拦截了 API 请求（尚未验证 Token）：请在同一 Chrome 配置中打开 https://cp.green.cloud，完成验证后重新刷新扩展；若仍被拦截，请联系 GreenCloud 检查 API 的 Cloudflare 策略');
+      e.httpStatus = res.status;
+      throw e;
+    }
     if (!res.ok) throw apiError(res.status,url,type,body.slice(0,20000));
     try { return JSON.parse(body); } catch { throw Error(`API ${new URL(url).pathname} 未返回 JSON，请检查接口路径`); }
   } finally { clearTimeout(timeout); }
+}
+// GreenCloud's Cloudflare clearance is held by Chrome. Keep it on this fixed
+// origin only; never forward cookies to KiwiVM or follow API redirects.
+function readGreenCloud(cfg, path, headers) {
+  return readJson(`${cfg.origin}${path}`, headers, 'include');
 }
 /** Read-only staged diagnostics: account authentication first, server ownership second. */
 export async function diagnoseGreenCloud(cfg) {
@@ -43,7 +54,7 @@ export async function diagnoseGreenCloud(cfg) {
   const result = [];
   for (const [name,path] of checks) {
     try {
-      await readJson(`${cfg.origin}${path}`,headers);
+      await readGreenCloud(cfg,path,headers);
       result.push({test:name,httpStatus:200,message:'请求成功（敏感响应内容未显示）'});
     } catch (e) {
       result.push({test:name,httpStatus:e.httpStatus||0,message:String(e.message||e).slice(0,260)});
@@ -68,7 +79,7 @@ export async function fetchAccount(cfg) {
   if (!ids.length) throw Error('GreenCloud 需要填写服务器 UUID：打开 cp.green.cloud/server/...，复制 /server/ 后面的 UUID，并在账户中点击「设置 UUID」');
   const headers = {Authorization:`Bearer ${cfg.token}`};
   return Promise.all(ids.map(async uuid => {
-    const json = await readJson(`${cfg.origin}/api/server/${encodeURIComponent(uuid)}?state=true`,headers);
+    const json = await readGreenCloud(cfg,`/api/server/${encodeURIComponent(uuid)}?state=true`,headers);
     return normalizeVirtFusionUserServer(json,cfg,uuid);
   }));
 }
