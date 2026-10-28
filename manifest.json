@@ -3,7 +3,7 @@
   "name": "VPSFolio - VPS Traffic Manager",
   "short_name": "VPSFolio",
   "description": "Read-only VPS traffic dashboard for GreenCloud VirtFusion and BandwagonHost KiwiVM, with encrypted Google Drive backup.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "alarms", "notifications", "identity"],
   "host_permissions": [

@@ -42,7 +42,7 @@ function mainView(){
   html+='</section>';
   if(isPopup) return html+'<div id="feedback" class="notice" hidden></div><div class="foot">自动刷新每 15 分钟（浏览器打开且保险库已解锁时）</div>';
   html+=`<section class="panel"><div class="paneltitle"><h2>已添加账户</h2></div>`;
-  html+=state.accounts.length?state.accounts.map(a=>`<div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc((a.serverUuids||[]).length)+' 台 VPS'}</div></div><div class="actions">${a.provider==='virtfusion'?`<button class="tiny configureGreen" data-id="${esc(a.id)}">设置 UUID</button>`:''}<button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div></div>`).join(''):'<div class="small">当前没有账号。</div>';
+  html+=state.accounts.length?state.accounts.map(a=>`<div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc((a.serverUuids||[]).length)+' 台 VPS'}</div></div><div class="actions">${a.provider==='virtfusion'?`<button class="tiny configureGreen" data-id="${esc(a.id)}">设置 UUID</button><button class="tiny diagnoseGreen" data-id="${esc(a.id)}">诊断 API</button>`:''}<input class="tiny tokenReplacement" type="password" autocomplete="new-password" placeholder="新的 API Key" aria-label="新密钥"/><button class="tiny updateToken" data-id="${esc(a.id)}">替换密钥</button><button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div></div>`).join(''):'<div class="small">当前没有账号。</div>';
   html+='</section>';
   html+=`<section class="panel"><h2>添加服务商账户</h2><form id="accountForm"><div class="fields"><div><label>服务商</label><select name="provider" id="provider"><option value="virtfusion">GreenCloud · VirtFusion</option><option value="kiwivm">搬瓦工 · KiwiVM</option></select></div><div><label>显示名称</label><input name="label" required maxlength="70" placeholder="例如 JP Softbank" autocomplete="off"></div><div class="wide"><label>API Key / Bearer Token</label><input name="token" type="password" required autocomplete="off" placeholder="仅加密保存在本机"></div></div>
    <div id="virtFields"><div class="fields"><div class="wide"><label>服务器 UUID（多个以逗号分隔）</label><input name="serverUuids" placeholder="复制 https://cp.green.cloud/server/ 后的 UUID" autocomplete="off" required></div><div><label>流量配额 GB（可选，若 API 不提供）</label><input name="quotaGb" type="number" min="1" step="1" placeholder="如 4096"></div></div><div class="notice">使用 VirtFusion 终端用户 API：GET /api/server/{uuid}?state=true。不要使用 /api/v1/servers 管理员接口。流量配额无法从 API 确认时可手动填入。</div></div>
@@ -91,6 +91,20 @@ function bind(){
     const quota=prompt('流量配额 GB（可选；如果 API 没有额度字段可以填写，留空则使用 API）',cfg.quotaGb==null?'':String(cfg.quotaGb));
     if(quota===null)return;
     action(()=>send('SET_GREEN_IDS',{id:cfg.id,serverUuids,quotaGb:quota.trim()?Number(quota):null}),'服务器 UUID 已保存，请点击刷新');
+  }));
+  document.querySelectorAll('.diagnoseGreen').forEach(b=>b.addEventListener('click',async()=>{
+    try {
+      notice('正在测试两个只读接口…');
+      const report=await send('DIAGNOSE_GREEN',{id:b.dataset.id});
+      notice(report.map(x=>`${x.test}：${x.httpStatus || '网络错误'}；${x.message}`).join(' | '),report.some(x=>x.httpStatus!==200));
+    } catch(e) {notice(e.message,true);}
+  }));
+  document.querySelectorAll('.updateToken').forEach(b=>b.addEventListener('click',()=>{
+    const input=b.closest('.account').querySelector('.tokenReplacement');
+    const token=input?.value.trim();
+    if(!token) {notice('先输入新 API Key',true);return;}
+    input.value='';
+    action(()=>send('UPDATE_ACCOUNT_TOKEN',{id:b.dataset.id,token}),'API Key 已替换并加密保存');
   }));
   document.querySelectorAll('.remove').forEach(b=>b.addEventListener('click',()=>{
     if(confirm('确定移除这个服务商账户和 API Key？'))action(()=>send('DELETE_ACCOUNT',{id:b.dataset.id}),'账户已移除');

@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.2.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
+> v0.3.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
 
 ## 安装
 
@@ -29,6 +29,11 @@
 4. 可选填「配额 GB」（若 API 没有提供）。当前解析用户 API 的 `data.state.network.primary.traffic.rx/tx/total` 字节值；若缺少重置日期，则显示空值，不会编造。
 
 参考第三方公开示例中的 `GET /api/server/{uuid}?state=true`。用户 API 返回的网络计数**未必等于计费周期已用流量**，应对照控制面板核实。仅使用 GET，不执行开关机、重装。
+
+### API 诊断
+若仍显示 401/403，请在「已添加账户」点击「诊断 API」：插件分别测试 `GET /api/server/{UUID}` 和 `GET /api/server/{UUID}?state=true`，显示 HTTP 状态码及脱敏的服务端错误原因。它不公开 Token、不进行管理操作。若需要更换已经暴露或过期的 Key，在对应账户的密码输入框输入新 Key，点击「替换密钥」即可保留现有 UUID 和设置。
+
+注意：403 可能来自 Token 权限、UUID 关联或代理安全策略，不能根据单一状态码认定是管理员 API 调用。请将诊断文字（检查不含凭据后）用于后续定位，不要公开旧密钥。
 
 ## Google Drive 加密备份（一次性 OAuth 设置）
 

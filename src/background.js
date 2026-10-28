@@ -1,5 +1,5 @@
 import {encryptVault,decryptVault,percent,validateConfig} from './core.js';
-import {fetchAccount} from './providers.js';
+import {fetchAccount,diagnoseGreenCloud} from './providers.js';
 import {backupVault,restoreVault} from './drive.js';
 const ALARM='vpsfolio-refresh';
 const getLocal = async()=>chrome.storage.local.get(['vault','snapshot','errors','updatedAt']);
@@ -78,6 +78,20 @@ async function dispatch(message){
       if(!cfg) throw Error('GreenCloud 账户不存在');
       cfg.serverUuids=message.serverUuids;
       cfg.quotaGb=message.quotaGb == null ? null : message.quotaGb;
+      validateConfig(cfg);
+      await saveSettings(data);return getState();
+    }
+    case 'DIAGNOSE_GREEN':{
+      const data=await getSettings();
+      const cfg=data.accounts.find(x=>x.id===message.id && x.provider==='virtfusion');
+      if(!cfg) throw Error('GreenCloud 账户不存在');
+      return diagnoseGreenCloud(cfg);
+    }
+    case 'UPDATE_ACCOUNT_TOKEN':{
+      const data=await getSettings();
+      const cfg=data.accounts.find(x=>x.id===message.id);
+      if(!cfg) throw Error('账户不存在');
+      cfg.token=String(message.token||'').trim();
       validateConfig(cfg);
       await saveSettings(data);return getState();
     }
