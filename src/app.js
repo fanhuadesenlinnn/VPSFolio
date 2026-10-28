@@ -3,6 +3,7 @@ const $=sel=>document.querySelector(sel);
 const app=$('#app'), isPopup=document.body.classList.contains('popup');
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state=null;
+let editingId=null;
 async function send(type,extra={}){
   const res=await chrome.runtime.sendMessage({type,...extra});
   if(!res?.ok)throw Error(res?.error||'未知错误');
@@ -33,16 +34,31 @@ function summary(){
   const updated=state.updatedAt?new Date(state.updatedAt).toLocaleString('zh-CN'):'尚未同步';
   return `<section class="statgrid"><div class="stat"><span class="small">VPS 总数</span><strong>${sv.length}</strong></div><div class="stat"><span class="small">服务商账户</span><strong>${state.accounts.length}</strong></div><div class="stat"><span class="small">流量预警</span><strong>${bad}</strong></div><div class="stat"><span class="small">最近刷新</span><strong style="font-size:13px">${esc(updated)}</strong></div></section>`;
 }
+function editAccountForm(a) {
+  return `<form class="edit-account-form" data-id="${esc(a.id)}">
+    <h3>编辑配置 · ${esc(a.label)}</h3>
+    <div class="fields">
+      <div><label>服务商（不可修改）</label><input value="${a.provider==='virtfusion'?'GreenCloud · VirtFusion':'搬瓦工 · KiwiVM'}" disabled></div>
+      <div><label>显示名称</label><input name="label" maxlength="70" required value="${esc(a.label)}" autocomplete="off"></div>
+      <div class="wide"><label>替换 API Key（留空保留原密钥）</label><input name="token" type="password" placeholder="不修改请留空" autocomplete="new-password"></div>
+      ${a.provider==='virtfusion'
+       ? `<div class="wide"><label>服务器 UUID（多个以逗号或空格分隔）</label><input name="serverUuids" value="${esc((a.serverUuids||[]).join(', '))}" placeholder="服务器页面 /server/ 后的 UUID" autocomplete="off"></div><div><label>流量配额 GB（可选）</label><input name="quotaGb" type="number" min="1" max="10000000" step="any" value="${a.quotaGb==null?'':esc(a.quotaGb)}" placeholder="留空使用 API 返回值"></div>`
+       : `<div><label>VEID</label><input name="veid" inputmode="numeric" pattern="[0-9]+" required value="${esc(a.veid||'')}" autocomplete="off"></div>`}
+    </div>
+    <div class="form-actions"><button class="primary" type="submit">保存修改</button><button class="cancelEdit" type="button">取消</button></div>
+    <div class="small">原账户 ID 保留，密钥留空不会修改；保存后需刷新才能重新查询。</div>
+  </form>`;
+}
 function mainView(){
   const sv=state.snapshot||[];
   let html=head()+summary();
-  if(state.errors.length){html+=`<div class="warning-list">${state.errors.map(e=>`<div class="notice error">${esc(e.label)}：${esc(e.message)}</div>`).join('')}</div>`;}
+  if(state.errors.length){html+=`<div class="warning-list">${state.errors.map(e=>`<div class="notice error"><span>${esc(e.label)}：${esc(e.message)}</span>${state.accounts.some(a=>a.id===e.accountId)?` <button class="tiny editAccount" data-id="${esc(e.accountId)}">编辑配置</button>`:''}</div>`).join('')}</div>`;}
   html+=`<section class="panel"><div class="paneltitle"><h2>服务器 · ${sv.length}</h2><span class="small">流量阈值 ${state.threshold}%</span></div>`;
   html+=sv.length?`<div class="servergrid">${sv.map(card).join('')}</div>`:'<div class="empty">还没有服务器数据。添加账户并点击「刷新」即可查询。</div>';
   html+='</section>';
   if(isPopup) return html+'<div id="feedback" class="notice" hidden></div><div class="foot">自动刷新每 15 分钟（浏览器打开且保险库已解锁时）</div>';
   html+=`<section class="panel"><div class="paneltitle"><h2>已添加账户</h2></div>`;
-  html+=state.accounts.length?state.accounts.map(a=>`<div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc((a.serverUuids||[]).length)+' 台 VPS'}</div></div><div class="actions">${a.provider==='virtfusion'?`<button class="tiny configureGreen" data-id="${esc(a.id)}">设置 UUID</button><button class="tiny diagnoseGreen" data-id="${esc(a.id)}">诊断 API</button>`:''}<input class="tiny tokenReplacement" type="password" autocomplete="new-password" placeholder="新的 API Key" aria-label="新密钥"/><button class="tiny updateToken" data-id="${esc(a.id)}">替换密钥</button><button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div></div>`).join(''):'<div class="small">当前没有账号。</div>';
+  html+=state.accounts.length?state.accounts.map(a=>`<div class="account-group"><div class="account"><div><strong>${esc(a.label)}</strong><div class="small">${a.provider==='kiwivm'?'搬瓦工 KiwiVM · VEID '+esc(a.veid):'GreenCloud VirtFusion · '+esc((a.serverUuids||[]).length)+' 台 VPS'}</div></div><div class="actions"><button class="tiny editAccount" data-id="${esc(a.id)}">编辑配置</button>${a.provider==='virtfusion'?`<button class="tiny diagnoseGreen" data-id="${esc(a.id)}">诊断 API</button>`:''}<button class="tiny danger remove" data-id="${esc(a.id)}">移除</button></div></div>${editingId===a.id?editAccountForm(a):''}</div>`).join(''):'<div class="small">当前没有账号。</div>';
   html+='</section>';
   html+=`<section class="panel"><h2>添加服务商账户</h2><form id="accountForm"><div class="fields"><div><label>服务商</label><select name="provider" id="provider"><option value="virtfusion">GreenCloud · VirtFusion</option><option value="kiwivm">搬瓦工 · KiwiVM</option></select></div><div><label>显示名称</label><input name="label" required maxlength="70" placeholder="例如 JP Softbank" autocomplete="off"></div><div class="wide"><label>API Key / Bearer Token</label><input name="token" type="password" required autocomplete="off" placeholder="仅加密保存在本机"></div></div>
    <div id="virtFields"><div class="fields"><div class="wide"><label>服务器 UUID（多个以逗号分隔）</label><input name="serverUuids" placeholder="复制 https://cp.green.cloud/server/ 后的 UUID" autocomplete="off" required></div><div><label>流量配额 GB（可选，若 API 不提供）</label><input name="quotaGb" type="number" min="1" step="1" placeholder="如 4096"></div></div><div class="notice">使用 VirtFusion 终端用户 API：GET /api/server/{uuid}?state=true。不要使用 /api/v1/servers 管理员接口。流量配额无法从 API 确认时可手动填入。</div></div>
@@ -82,15 +98,30 @@ function bind(){
     else Object.assign(account,{origin:'https://cp.green.cloud',serverUuids:String(f.get('serverUuids')||'').split(/[\s,;]+/).filter(Boolean),quotaGb:f.get('quotaGb')?Number(f.get('quotaGb')):null});
     action(()=>send('ADD_ACCOUNT',{account}),'账户已加密保存，请点击刷新');
   });
-  document.querySelectorAll('.configureGreen').forEach(b=>b.addEventListener('click',()=>{
-    const cfg=state.accounts.find(a=>a.id===b.dataset.id);
-    if(!cfg)return;
-    const raw=prompt('请输入 VPS 的 UUID，多个以逗号分隔。\\nUUID 位于 https://cp.green.cloud/server/{UUID}',(cfg.serverUuids||[]).join(', '));
-    if(raw===null)return;
-    const serverUuids=raw.split(/[\s,;]+/).filter(Boolean);
-    const quota=prompt('流量配额 GB（可选；如果 API 没有额度字段可以填写，留空则使用 API）',cfg.quotaGb==null?'':String(cfg.quotaGb));
-    if(quota===null)return;
-    action(()=>send('SET_GREEN_IDS',{id:cfg.id,serverUuids,quotaGb:quota.trim()?Number(quota):null}),'服务器 UUID 已保存，请点击刷新');
+  document.querySelectorAll('.editAccount').forEach(b=>b.addEventListener('click',()=>{
+    editingId=b.dataset.id;
+    render();
+    document.querySelector('.edit-account-form')?.scrollIntoView({block:'nearest'});
+  }));
+  document.querySelectorAll('.cancelEdit').forEach(b=>b.addEventListener('click',()=>{
+    editingId=null;render();
+  }));
+  document.querySelectorAll('.edit-account-form').forEach(form=>form.addEventListener('submit',e=>{
+    e.preventDefault();
+    const a=state.accounts.find(x=>x.id===form.dataset.id);
+    if(!a){notice('账户不存在',true);return;}
+    const f=new FormData(form);
+    const changes={label:String(f.get('label')||'').trim(),token:String(f.get('token')||'').trim()};
+    if(a.provider==='kiwivm') changes.veid=String(f.get('veid')||'').trim();
+    else {
+      changes.serverUuids=String(f.get('serverUuids')||'').split(/[\\s,;]+/).filter(Boolean);
+      changes.quotaGb=f.get('quotaGb')===''?null:String(f.get('quotaGb'));
+    }
+    action(async()=>{
+      const result=await send('UPDATE_ACCOUNT',{id:a.id,changes});
+      editingId=null;
+      return result;
+    },'配置已保存，请点击刷新重新查询');
   }));
   document.querySelectorAll('.diagnoseGreen').forEach(b=>b.addEventListener('click',async()=>{
     try {
@@ -98,13 +129,6 @@ function bind(){
       const report=await send('DIAGNOSE_GREEN',{id:b.dataset.id});
       notice(report.map(x=>`${x.test}：${x.httpStatus || '网络错误'}；${x.message}`).join(' | '),report.some(x=>x.httpStatus!==200));
     } catch(e) {notice(e.message,true);}
-  }));
-  document.querySelectorAll('.updateToken').forEach(b=>b.addEventListener('click',()=>{
-    const input=b.closest('.account').querySelector('.tokenReplacement');
-    const token=input?.value.trim();
-    if(!token) {notice('先输入新 API Key',true);return;}
-    input.value='';
-    action(()=>send('UPDATE_ACCOUNT_TOKEN',{id:b.dataset.id,token}),'API Key 已替换并加密保存');
   }));
   document.querySelectorAll('.remove').forEach(b=>b.addEventListener('click',()=>{
     if(confirm('确定移除这个服务商账户和 API Key？'))action(()=>send('DELETE_ACCOUNT',{id:b.dataset.id}),'账户已移除');

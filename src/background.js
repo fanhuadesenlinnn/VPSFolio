@@ -1,4 +1,4 @@
-import {encryptVault,decryptVault,percent,validateConfig} from './core.js';
+import {encryptVault,decryptVault,percent,validateConfig,mergeAccountConfig} from './core.js';
 import {fetchAccount,diagnoseGreenCloud} from './providers.js';
 import {backupVault,restoreVault} from './drive.js';
 const ALARM='vpsfolio-refresh';
@@ -71,6 +71,20 @@ async function dispatch(message){
       const data=await getSettings();
       const c={...message.account,id:crypto.randomUUID()};
       validateConfig(c);data.accounts.push(c);await saveSettings(data);return getState();
+    }
+    case 'UPDATE_ACCOUNT':{
+      const data=await getSettings();
+      const idx=data.accounts.findIndex(a=>a.id===message.id);
+      if(idx<0) throw Error('账户不存在');
+      data.accounts[idx]=mergeAccountConfig(data.accounts[idx],message.changes);
+      await saveSettings(data);
+      // Do not display old traffic figures or old errors as if they came from the new config.
+      const previous=await getLocal();
+      await chrome.storage.local.set({
+        snapshot:(previous.snapshot||[]).filter(s=>s.accountId!==message.id),
+        errors:(previous.errors||[]).filter(e=>e.accountId!==message.id)
+      });
+      return getState();
     }
     case 'SET_GREEN_IDS':{
       const data=await getSettings();

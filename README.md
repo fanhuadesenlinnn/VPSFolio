@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.3.1：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
+> v0.4.0：修复 v0.1.0 的 GreenCloud 403：原版错误调用管理员 `/api/v1/servers`；本版改为 VirtFusion 普通用户 API `GET /api/server/{UUID}?state=true`。已完成本地测试，真实账户联调仍需确认。
 
 ## 安装
 
@@ -10,6 +10,16 @@
 2. 解压 `VPSFolio-Chrome-Extension.zip` 到固定目录。**不要直接将 ZIP 拖入扩展页面**。
 3. Chrome 打开 `chrome://extensions`，开启开发者模式，点击「加载已解压的扩展程序」，选择包含 `manifest.json` 的目录。
 4. 点击工具栏图标，创建一个 **至少 10 字符**的保险库口令。点击「管理」进入完整配置页。
+
+## 编辑已有配置（v0.4.0）
+
+VPSFolio →「管理」→「已添加账户」→ **编辑配置**。所有账户（包括已发生 401/403 或接口错误的配置）均可编辑，无需删除重建。错误提示旁也可直接点击「编辑配置」。
+
+- 通用：修改显示名称、替换 API Key（**留空即保留旧 Key**）。
+- GreenCloud：修改服务器 UUID 列表与手动流量配额（GB）。
+- 搬瓦工：修改 VEID。
+- 账户 ID、服务商类型固定不变，原 Key 仍存放在加密保险库中；保存后只清理该账户的旧错误与缓存结果，其他 VPS 不受影响。点击「刷新」重新检测。
+- **先更新本地加密配置，再手动进行 Google Drive 加密备份**；旧云备份不会自动覆盖。
 
 ## 配置服务商
 

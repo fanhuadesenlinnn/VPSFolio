@@ -32,6 +32,37 @@ export function validateConfig(c) {
       throw Error('手动流量配额必须是正数 GB');
   }
 }
+
+/**
+ * Update an existing provider without changing its account ID, provider kind or
+ * existing credential when the replacement input is blank.
+ * The complete object is encrypted by the caller before storage.
+ */
+export function mergeAccountConfig(existing, changes) {
+  if (!existing || !['virtfusion','kiwivm'].includes(existing.provider))
+    throw Error('原账户配置不存在或不支持');
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes))
+    throw Error('编辑内容无效');
+  const allowed = new Set(['label','token',...(existing.provider==='virtfusion' ? ['serverUuids','quotaGb'] : ['veid'])]);
+  if (Object.keys(changes).some(k => !allowed.has(k)))
+    throw Error('不能修改账户 ID、服务商类型或其他受保护字段');
+  const updated = {...existing};
+  if (Object.hasOwn(changes,'label')) updated.label = String(changes.label ?? '').trim();
+  if (Object.hasOwn(changes,'token')) {
+    const replacement = String(changes.token ?? '').trim();
+    if (replacement) updated.token = replacement;
+  }
+  if (existing.provider === 'virtfusion') {
+    if (Object.hasOwn(changes,'serverUuids')) updated.serverUuids = changes.serverUuids;
+    if (Object.hasOwn(changes,'quotaGb')) {
+      const val=changes.quotaGb;
+      updated.quotaGb = val === null || val === '' ? null : Number(val);
+    }
+  } else if (Object.hasOwn(changes,'veid')) updated.veid = String(changes.veid ?? '').trim();
+  validateConfig(updated);
+  return updated;
+}
+
 export async function encryptVault(data, passphrase) {
   if (!passphrase || passphrase.length < 10) throw Error('加密口令至少 10 个字符');
   const salt = bytes(16), iv = bytes(12);

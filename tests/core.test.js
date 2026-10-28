@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {encryptVault,decryptVault,normalizeKiwi,normalizeVirtFusionServers,applyVirtFusionTraffic,normalizeVirtFusionUserServer,percent,validateConfig} from '../src/core.js';
+import {mergeAccountConfig,encryptVault,decryptVault,normalizeKiwi,normalizeVirtFusionServers,applyVirtFusionTraffic,normalizeVirtFusionUserServer,percent,validateConfig} from '../src/core.js';
 const kiwi={provider:'kiwivm',label:'搬瓦工',veid:'1234',token:'secret'};
 const uuid='11111111-2222-4333-8444-555555555555';
 const virt={provider:'virtfusion',label:'GreenCloud',origin:'https://cp.green.cloud',serverUuids:[uuid],token:'token'};
@@ -38,4 +38,36 @@ test('VirtFusion User API live traffic and optional manual quota',()=>{
 test('Legacy vault account can be updated without re-entering token',()=>{
   const legacy={provider:'virtfusion',label:'Old',origin:'https://cp.green.cloud',token:'secret',listPath:'/api/v1/servers',trafficPath:'/api/v1/servers/{id}/traffic'};
   assert.doesNotThrow(()=>validateConfig(legacy));
+});
+
+
+test('Edit GreenCloud config keeps its original identity, token and legacy fields',()=>{
+  const previous={...virt,id:'original-account',token:'preserved-secret',listPath:'/old'};
+  const out=mergeAccountConfig(previous,{label:'JP Tokyo',token:'',serverUuids:[uuid],quotaGb:'4096'});
+  assert.equal(out.id,'original-account');
+  assert.equal(out.provider,'virtfusion');
+  assert.equal(out.token,'preserved-secret');
+  assert.equal(out.label,'JP Tokyo');
+  assert.equal(out.quotaGb,4096);
+  assert.equal(out.listPath,'/old');
+  assert.equal(previous.label,'GreenCloud');
+});
+test('Edit GreenCloud can replace token or clear a manual quota',()=>{
+  const out=mergeAccountConfig({...virt,quotaGb:4096},{token:'rotated-secret',quotaGb:null});
+  assert.equal(out.token,'rotated-secret');
+  assert.equal(out.quotaGb,null);
+});
+test('Edit KiwiVM config updates VEID and label, keeps token if empty',()=>{
+  const original={...kiwi,id:'stable',token:'old',veid:'12345'};
+  const out=mergeAccountConfig(original,{label:'Repaired VPS',veid:'98765',token:' '});
+  assert.equal(out.veid,'98765');
+  assert.equal(out.token,'old');
+  assert.equal(out.id,'stable');
+});
+test('Reject invalid edits and protected field changes',()=>{
+  assert.throws(()=>mergeAccountConfig({...virt,id:'stable'},{id:'new'}));
+  assert.throws(()=>mergeAccountConfig(virt,{provider:'kiwivm'}));
+  assert.throws(()=>mergeAccountConfig(virt,{label:'  '}));
+  assert.throws(()=>mergeAccountConfig(virt,{serverUuids:['incorrect']}));
+  assert.throws(()=>mergeAccountConfig(kiwi,{veid:'xyz'}));
 });
