@@ -2,7 +2,7 @@
 
 **多服务商 VPS 流量聚合 Chrome 扩展**：GreenCloud VirtFusion + 搬瓦工 KiwiVM；本地 AES-256-GCM 加密、阈值通知、手动/每 15 分钟刷新、Google Drive 加密备份与恢复。
 
-> v0.4.1：GreenCloud 请求携带该域名的浏览器 Cookie，以使用已有 Cloudflare 验证状态；识别验证页并给出处理提示。补齐官方 API 的配额、IP、CPU、内存与重置日期字段。两台真实 VPS 在官方文档测试台均返回 200；扩展跨域连接仍需安装更新后验证。
+> v0.4.2：按 GreenCloud 官方用户 API 文档使用 Bearer Token，所有请求明确禁止携带 Cookie；补齐 JSON 请求头。保留官方配额、IP、资源与重置日期解析。Cloudflare 验证页单独报错并提供 Ray ID；连接问题尚未解决，需 GreenCloud 核查 API 验证策略。
 
 ## 安装
 
@@ -37,7 +37,7 @@ VPSFolio →「管理」→「已添加账户」→ **编辑配置**。所有账
 2. 添加 GreenCloud 账号时填写 Key 和服务器 UUID。多个 UUID 用逗号分隔。
 3. **从旧版升级不用删除原有账户**：在「已添加账户」中点击「编辑配置」并填写 UUID，之前加密保存的 Key 保留。
 4. 自动读取 `data.network.primary.limit`（如 `4096 GB`）、`network.primary.ipv4`、`cpu`、`memory`、`currentMonthlyPeriod.end`。「配额 GB」可手动覆盖配额。流量读取 `data.state.network.primary.traffic.rx/tx/total` 字节值；缺少数据时保留空值。
-5. 若提示 Cloudflare：先在**安装扩展的同一 Chrome 配置**打开 https://cp.green.cloud，完成验证后回扩展刷新。验证过期、Cloudflare 按来源拦截或浏览器 Cookie 策略仍可能阻止请求，需联系 GreenCloud 确认 API 验证策略。
+5. API 不依赖网页登录或 Cookie。若提示 Cloudflare，请将诊断中的接口路径、HTTP 状态、Ray ID 和请求时间提供给 GreenCloud，确认官方 API 的访问策略或受支持的机器调用入口。不要发送密钥。浏览器文档测试台成功不能证明无 Cookie 的扩展直连成功。
 
 已核对官方 API 的 `GET /api/server/{serverId}` 与布尔查询参数 `state`。用户 API 返回的网络计数**未必等于计费周期已用流量**，应对照控制面板核实。仅使用 GET，不执行开关机、重装。
 
@@ -51,6 +51,14 @@ VPSFolio →「管理」→「已添加账户」→ **编辑配置**。所有账
 已从实际登录的 `https://cp.green.cloud/account/api#description/introduction` 页面读取终端用户 API：Base URL 为 `https://cp.green.cloud/api`，使用 `Authorization: Bearer <token>`，`Accept: application/json`，其中 `GET /api/account` 是官方已明确提供的账户请求。官方列明无效或过期 Token 返回 401、限流返回 429、服务不可用返回 503；服务器管理请求仅允许服务器所有者。
 
 「诊断 API」首先请求 `GET /api/account`，成功后测试服务器详情和实时状态。Server 分组已核对：`GET /server/{serverId}` 支持 `state` 参数，返回 `data.network.primary.limit`、`currentMonthlyPeriod` 与 `state.network.primary.traffic`。2026-10-28 官方文档测试台两台真实 VPS 的 `state=true` 均返回 200；终端直连返回 `cf-mitigated: challenge` 的 HTML 403，与 API 的 JSON 授权错误分开提示。浏览器文档测试成功不能替代扩展跨域端到端验证。
+
+### 无 Cookie 联调结果与限制（2026-10-28）
+
+使用新密钥、`Authorization: Bearer <token>`、`Accept: application/json`、`Content-Type: application/json`，不发送 Cookie，实测 `/api/account` 及两台服务器的 `/api/server/{UUID}?state=true` 均返回 HTML 403，响应头含 `cf-mitigated: challenge`。这证明请求在 Cloudflare 验证层被拦截，不能据此判断 API 密钥或 UUID 无效。具体触发规则需由 GreenCloud 根据 Ray ID 查询日志。
+
+此前官方浏览器测试台返回 200、无效密钥对照返回 401；但没有排除浏览器自身的验证 Cookie，因此不能将该结果表述为独立 API 直连验证通过。v0.4.1 的 Cookie 尝试已撤回，未引入内容脚本或页面转发。
+
+参考：[GreenCloud 用户 API](https://cp.green.cloud/account/api)、[VirtFusion 6.1 用户 API 发布说明](https://docs.virtfusion.com/releases/v6/)、[Cloudflare 验证响应识别](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)、[Cloudflare 验证页兼容性](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/#compatibility-limitations)。
 
 ## Google Drive 加密备份（一次性 OAuth 设置）
 
@@ -88,7 +96,7 @@ npm run validate
 - 扩展只拥有指定 API 域名与 Google Drive API 的 host permissions，不执行远程 JavaScript。
 - 不支持重装、关机等改变服务器状态的 API。
 - Key 使用浏览器本地 AES-256-GCM 加密，PBKDF2-SHA256 25 万轮；云端保存的只有密文。
-- 只有 GreenCloud 固定域名的请求使用 `credentials: include` 携带浏览器 Cookie，不读取 Cookie 内容、不增加 cookies 权限；KiwiVM 不携带 Cookie。所有服务商请求使用 `redirect:'error'`，避免在异常重定向中泄露凭据。
+- 所有服务商请求使用 `credentials: omit`，不发送浏览器 Cookie；GreenCloud 仅使用官方 Bearer Token。所有服务商请求使用 `redirect:'error'`，避免在异常重定向中泄露凭据。
 - 仅供个人/可信设备使用，浏览器本地遭恶意扩展或系统级入侵时仍可能泄露会话密钥。
 
 ## 资料

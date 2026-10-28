@@ -17,17 +17,19 @@ function apiError(status, url, contentType, body) {
   e.httpStatus = status;
   return e;
 }
-async function readJson(url, headers = {}, credentials = 'omit') {
+async function readJson(url, headers = {}) {
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 15000);
   try {
-    const res = await fetch(url, {method:'GET', headers:{Accept:'application/json', ...headers}, credentials, cache:'no-store', redirect:'error', signal:ctl.signal});
+    const res = await fetch(url, {method:'GET', headers:{Accept:'application/json', ...headers}, credentials:'omit', cache:'no-store', redirect:'error', signal:ctl.signal});
     const type = res.headers.get('content-type') || '';
     const body = await res.text();
     if (body.length > 2_000_000) throw Error('API 响应过大');
     if (res.headers.get('cf-mitigated') === 'challenge' ||
         (type.includes('text/html') && /challenge-platform|<title>Just a moment\.\.\.<\/title>/i.test(body))) {
-      const e = new Error('Cloudflare 浏览器验证拦截了 API 请求（尚未验证 Token）：请在同一 Chrome 配置中打开 https://cp.green.cloud，完成验证后重新刷新扩展；若仍被拦截，请联系 GreenCloud 检查 API 的 Cloudflare 策略');
+      const rawRay = res.headers.get('cf-ray') || '';
+      const ray = /^[a-f0-9]{16}-[a-z]{3}$/i.test(rawRay) ? rawRay : '';
+      const e = new Error(`Cloudflare 拦截了 API 请求（尚未验证 Token）；请联系 GreenCloud 核查此 API 的验证策略${ray ? '；Ray ID: '+ray : ''}。此请求仅使用 Bearer Token，不依赖登录 Cookie。`);
       e.httpStatus = res.status;
       throw e;
     }
@@ -35,10 +37,9 @@ async function readJson(url, headers = {}, credentials = 'omit') {
     try { return JSON.parse(body); } catch { throw Error(`API ${new URL(url).pathname} 未返回 JSON，请检查接口路径`); }
   } finally { clearTimeout(timeout); }
 }
-// GreenCloud's Cloudflare clearance is held by Chrome. Keep it on this fixed
-// origin only; never forward cookies to KiwiVM or follow API redirects.
+// Official end-user API uses Bearer authorization, independent of browser login.
 function readGreenCloud(cfg, path, headers) {
-  return readJson(`${cfg.origin}${path}`, headers, 'include');
+  return readJson(`${cfg.origin}${path}`, {'Content-Type':'application/json',...headers});
 }
 /** Read-only staged diagnostics: account authentication first, server ownership second. */
 export async function diagnoseGreenCloud(cfg) {
