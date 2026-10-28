@@ -16,6 +16,6 @@ if(cid){
 }
 writeFileSync(join(dir,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 const code=`import os, zipfile\nfrom pathlib import Path\nroot=Path(${JSON.stringify(dir)})\nout=Path(${JSON.stringify(join(root,'dist','VPSFolio-Chrome-Extension.zip'))})\nwith zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:\n    for p in sorted(root.rglob('*')):\n        if p.is_file(): z.write(p,p.relative_to(root))\nprint(out)`;
-const result=spawnSync('python3',['-c',code],{encoding:'utf8'});
+const result=spawnSync(process.env.PYTHON || (process.platform==='win32' ? 'python' : 'python3'),['-c',code],{encoding:'utf8'});
 if(result.status!==0)throw Error(result.stderr);
 console.log(result.stdout);
